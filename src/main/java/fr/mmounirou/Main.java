@@ -84,34 +84,39 @@ public class Main {
 
     private static boolean imdbToTrakt(String username, String password, String apiKey, ImdToTraktParams imdToTraktParams){
         System.out.printf("Start update of %s ... %n", imdToTraktParams.getSlug());
+        try {
+            RestAdapter restAdapter = new RestAdapter
+                    .Builder()
+                    .setLogLevel(RestAdapter.LogLevel.NONE)
+                    .setEndpoint("http://api.trakt.tv/")
+                    .build();
 
-        RestAdapter restAdapter = new RestAdapter
-                .Builder()
-                .setLogLevel(RestAdapter.LogLevel.NONE)
-                .setEndpoint("http://api.trakt.tv/")
-                .build();
+            TraktListService service = restAdapter.create(TraktListService.class);
 
-        TraktListService service = restAdapter.create(TraktListService.class);
+            cleanTrackList(service, apiKey, username, imdToTraktParams.getSlug(), password);
 
-        cleanTrackList(service, apiKey, username, imdToTraktParams.getSlug(), password);
+            List<ImdbSearchResult> imdbResults = getImdbSearchResults(imdToTraktParams.getImdbUrl(), imdToTraktParams.getImdbMapper(), imdToTraktParams.getResultCssQuery());
+            List<TraktItem> imdbSortedResults = imdToTraktParams.getSorter().apply(imdbResults)
+                    .parallelStream()
+                    .map(x -> {
+                        TraktItem result = new TraktItem();
+                        result.setType(imdToTraktParams.getItemtype());
+                        result.setTitle(x.getTitle());
+                        result.setImdb_id(x.getImdbid());
+                        return result;
+                    })
+                    .collect(Collectors.toList());
 
-        List<ImdbSearchResult> imdbResults = getImdbSearchResults(imdToTraktParams.getImdbUrl(), imdToTraktParams.getImdbMapper(), imdToTraktParams.getResultCssQuery());
-        List<TraktItem> imdbSortedResults = imdToTraktParams.getSorter().apply(imdbResults)
-                .parallelStream()
-                .map(x -> {
-                    TraktItem result = new TraktItem();
-                    result.setType(imdToTraktParams.getItemtype());
-                    result.setTitle(x.getTitle());
-                    result.setImdb_id(x.getImdbid());
-                    return result;
-                })
-                .collect(Collectors.toList());
+            service.addItems(apiKey, new ListItemsRequest(username, password, imdToTraktParams.getSlug(), imdbSortedResults));
+            System.out.printf("Update of %s done %n", imdToTraktParams.getSlug());
 
-        service.addItems(apiKey, new ListItemsRequest(username, password, imdToTraktParams.getSlug(), imdbSortedResults));
+            return true;
 
-        System.out.printf("Update of %s done %n", imdToTraktParams.getSlug());
+        }catch (Throwable e){
+            System.out.printf("fail update of %s ... %n", imdToTraktParams.getSlug());
+            return false;
+        }
 
-        return true;
     }
     private static void cleanTrackList(TraktListService service, String apiKey, String username, String slug, String password) {
         List<TraktItem> listContents = service
